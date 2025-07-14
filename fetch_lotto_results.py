@@ -1,59 +1,75 @@
 import requests
 import csv
 from io import StringIO
+import os
+import subprocess
 
-def fetch_lotto_results(output_path):
+def update_previous_draws_file(local_filepath, source_url=None):
     """
-    Downloads UK National Lottery results and extracts 6 main balls per draw,
-    formatted as tab-separated two-digit numbers.
+    Updates the lotto_results.lot file in the GitHub repo by fetching all historical draws
+    from the UK National Lottery website and appending any new draws.
+    
+    - Each line has 6 tab-separated main ball numbers (formatted as 2-digit strings).
+    - Bonus ball is excluded.
+    - Draws are sorted newest first.
     """
-    url = "https://www.national-lottery.co.uk/results/lotto/draw-history/csv"
+    if source_url is None:
+        source_url = "https://www.national-lottery.co.uk/results/lotto/draw-history/csv"
 
+    # Load existing lines
     try:
-        response = requests.get(url)
-        response.raise_for_status()
-    except requests.RequestException as e:
-        print(f"❌ Failed to fetch draw history: {e}")
-        return
+        with open(local_filepath, 'r') as f:
+            local_lines = f.read().splitlines()
+        local_draws = set(local_lines)
+    except FileNotFoundError:
+        local_lines = []
+        local_draws = set()
 
-    csv_data = response.text
-    reader = csv.reader(StringIO(csv_data))
+    # Download and parse CSV
+    response = requests.get(source_url)
+    response.raise_for_status()
+    remote_csv = StringIO(response.text)
+    reader = csv.reader(remote_csv)
 
-    lines = []
-    header_skipped = False
+    header = next(reader, None)  # Skip header
+    new_draws = []
 
     for row in reader:
-        if not header_skipped:
-            header_skipped = True
+        if len(row) < 7:
             continue
-
-        # Extract columns B to G (Main Ball 1–6)
         try:
-            balls = row[1:7]  # Columns B to G
-            if len(balls) != 6:
-                continue
-
-            balls = [int(b) for b in balls]  # Convert to int
-            formatted = "\t".join(f"{b:02}" for b in balls)  # Two-digit format
-            lines.append(formatted)
-        except (ValueError, IndexError):
+            main_balls = [int(row[i]) for i in range(1, 7)]  # Columns B-G = 6 main balls
+        except ValueError:
             continue
 
-    if not lines:
-        print("❌ No valid lines found in data.")
-        return
+        formatted = '\t'.join(f"{n:02}" for n in sorted(main_balls))
+        if formatted not in local_draws:
+            new_draws.append(formatted)
 
-    # Reverse to have most recent draws first
-    lines.reverse()
+    if not new_draws:
+        print("No new draws found.")
+        return 0
 
-    try:
-        with open(output_path, "w") as f:
-            for line in lines:
-                f.write(line + "\n")
-        print(f"✅ Wrote {len(lines)} draws to {output_path}")
-    except IOError as e:
-        print(f"❌ Failed to save output file: {e}")
+    # Write new draws first
+    updated_lines = new_draws + local_lines
+    with open(local_filepath, 'w') as f:
+        for line in updated_lines:
+            f.write(line + '\n')
+
+    print(f"✅ Appended {len(new_draws)} new draw(s) at top of the file.")
+
+    # Automatically stage, commit, and push if run in GitHub Actions
+    if os.getenv("GITHUB_ACTIONS"):
+        subprocess.run(["git", "config", "user.name", "github-actions"], check=True)
+        subprocess.run(["git", "config", "user.email", "github-actions@github.com"], check=True)
+        subprocess.run(["git", "add", local_filepath], check=True)
+        subprocess.run(["git", "diff", "--cached", "--quiet"]) or subprocess.run([
+            "git", "commit", "-m", "🔄 Auto-update lotto_results.lot"
+        ], check=True)
+        subprocess.run(["git", "push"], check=True)
+
+    return len(new_draws)
 
 
 if __name__ == "__main__":
-    fetch_lotto_results("lotto_results.lot")
+    update_previous_draws_file("lotto_results.lot")
