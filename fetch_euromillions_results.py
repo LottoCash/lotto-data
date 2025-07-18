@@ -35,15 +35,19 @@ def update_previous_draws_file(local_filepath, source_url=None):
     new_draws = []
 
     for row in reader:
+        # Expect at least: Date, 5 main balls, 2 lucky stars, (Millionaire Maker)
         if len(row) < 8:
-            continue
+            continue  # skip malformed lines
         try:
-            main_balls = [int(row[i]) for i in range(1, 6)]    # Columns B-F = 5 main balls
-            lucky_stars = [int(row[i]) for i in range(6, 8)]   # Columns G-H = 2 lucky stars
+            # Columns B–F → 5 main balls (index 1‑5)
+            main_balls = [int(row[i]) for i in range(1, 6)]
+            # Columns G–H → 2 lucky stars (index 6‑7)
+            lucky_stars = [int(row[i]) for i in range(6, 8)]
         except ValueError:
             continue
 
-        formatted = '\t'.join(f"{n:02}" for n in sorted(main_balls + lucky_stars))
+        # Keep main balls sorted; stars sorted, then combine
+        formatted = '\t'.join(f"{n:02}" for n in (sorted(main_balls) + sorted(lucky_stars)))
         if formatted not in local_draws:
             new_draws.append(formatted)
 
@@ -57,7 +61,7 @@ def update_previous_draws_file(local_filepath, source_url=None):
         for line in updated_lines:
             f.write(line + '\n')
 
-    print(f"\u2705 Appended {len(new_draws)} new draw(s) at top of the file.")
+    print(f"✅ Appended {len(new_draws)} new draw(s) at top of the file.")
 
     # Automatically stage, commit, and push if run in GitHub Actions
     if os.getenv("GITHUB_ACTIONS"):
@@ -65,7 +69,7 @@ def update_previous_draws_file(local_filepath, source_url=None):
         subprocess.run(["git", "config", "user.email", "github-actions@github.com"], check=True)
         subprocess.run(["git", "add", local_filepath], check=True)
         subprocess.run(["git", "diff", "--cached", "--quiet"]) or subprocess.run([
-            "git", "commit", "-m", "\ud83d\udd04 Auto-update euromillions_results.lot"
+            "git", "commit", "-m", "🔄 Auto-update euromillions_results.lot"
         ], check=True)
         subprocess.run(["git", "push"], check=True)
 
