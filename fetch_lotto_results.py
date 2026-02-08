@@ -15,10 +15,15 @@ class UpdaterSourceError(RuntimeError):
 
 
 def _fetch_text(url: str, timeout: int = 30) -> requests.Response:
-    # A simple UA helps with some CDNs/WAFs, and makes logs clearer
+    # Use a common desktop Chrome UA (custom UAs can get served JS-only / blocked pages)
     headers = {
-        "User-Agent": "LottoCashUpdater/1.1 (+https://github.com/your-repo)",
-        "Accept": "text/csv,text/plain,text/html,application/xhtml+xml",
+        "User-Agent": (
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-GB,en;q=0.9",
+        "Connection": "keep-alive",
     }
     r = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True)
     r.raise_for_status()
@@ -67,50 +72,50 @@ def _parse_official_csv(text: str) -> list[str]:
 
 def _parse_beatlottery_html(html: str) -> list[str]:
     """
-    Robust parser for BeatLottery draw-history HTML.
-
-    Strategy:
-    - Find each occurrence of the token 'BONUS'
-    - Look in a nearby character window and extract all 1–2 digit numbers
-    - If we can see at least 7 numbers near 'BONUS', interpret the last 7 as:
-        [main1..main6, bonus]
-    This survives line breaks, &nbsp;, extra spacing, and minor markup changes.
+    Robust parser:
+    - Remove scripts/styles
+    - Strip HTML tags -> plain text
+    - Normalise whitespace
+    - Find patterns: 6 numbers + BONUS + bonus number
     """
-    upper = html.upper()
-    bonus_positions = [m.start() for m in re.finditer(r"BONUS", upper)]
-    if not bonus_positions:
-        raise UpdaterSourceError("BeatLottery HTML: no 'BONUS' tokens found (unexpected page content?)")
+    # Remove script/style blocks (common place for a ton of unrelated numbers)
+    html = re.sub(r"(?is)<script.*?>.*?</script>", " ", html)
+    html = re.sub(r"(?is)<style.*?>.*?</style>", " ", html)
+
+    # Convert HTML entities we care about
+    html = html.replace("&nbsp;", " ").replace("&#160;", " ")
+
+    # Strip tags
+    text = re.sub(r"(?s)<[^>]*>", " ", html)
+
+    # Collapse whitespace
+    text = re.sub(r"\s+", " ", text).strip()
+
+    # Now search across the entire visible text
+    # Supports both "07 25 27 46 52 59 BONUS 40" and "7 25 27 46 52 59 BONUS 40"
+    pattern = re.compile(
+        r"\b(\d{1,2})\s+(\d{1,2})\s+(\d{1,2})\s+(\d{1,2})\s+(\d{1,2})\s+(\d{1,2})\s+BONUS\s+(\d{1,2})\b",
+        re.IGNORECASE,
+    )
+    matches = pattern.findall(text)
+
+    if not matches:
+        raise UpdaterSourceError(
+            "BeatLottery HTML parsed but found 0 draws. "
+            f"Visible text head was: {text[:500]!r}"
+        )
 
     draws = []
     seen = set()
-
-    for pos in bonus_positions:
-        # Window around BONUS: tweak sizes if needed
-        start = max(0, pos - 120)
-        end = min(len(html), pos + 80)
-        chunk = html[start:end]
-
-        nums = re.findall(r"\b\d{1,2}\b", chunk)
-        if len(nums) < 7:
-            continue
-
-        # Use the last 7 numbers near BONUS as [6 mains + bonus]
-        last7 = nums[-7:]
-        main6 = [int(x) for x in last7[:6]]
-
+    for m in matches:
+        main6 = [int(x) for x in m[:6]]
         formatted = "\t".join(f"{n:02}" for n in sorted(main6))
-
         if formatted not in seen:
             seen.add(formatted)
             draws.append(formatted)
 
     if not draws:
-        # Helpful diagnostics for logs
-        head = re.sub(r"\s+", " ", html[:500])
-        raise UpdaterSourceError(
-            "BeatLottery HTML parsed but found 0 draws. "
-            f"Page head was: {head!r}"
-        )
+        raise UpdaterSourceError("BeatLottery parsing produced 0 unique draws after filtering")
 
     return draws
 
@@ -173,6 +178,7 @@ def update_previous_draws_file(local_filepath, source_url=None) -> int:
 
 if __name__ == "__main__":
     update_previous_draws_file("lotto_results.lot")
+
 
 
 
