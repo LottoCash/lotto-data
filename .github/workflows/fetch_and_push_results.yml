@@ -3,10 +3,10 @@ name: Fetch and Push Lotto Results
 on:
   schedule:
     - cron: '0 22 * * *'  # Runs every day at 10 PM UTC
-  workflow_dispatch:      # Allows manual triggering
+  workflow_dispatch:
 
 permissions:
-  contents: write  # ✅ Allows the workflow to push changes to the repository
+  contents: write
 
 jobs:
   update-results:
@@ -14,17 +14,21 @@ jobs:
 
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.x'
+          cache: 'pip'
 
-      - name: Install requests
-        run: pip install requests
+      - name: Install dependencies
+        run: |
+          python -V
+          pip install -U pip
+          pip install requests
 
       - name: Run fetch script
         run: python fetch_lotto_results.py
@@ -36,5 +40,3 @@ jobs:
           git add lotto_results.lot
           git diff --cached --quiet || git commit -m "🔄 Auto-update lotto_results.lot"
           git push
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
