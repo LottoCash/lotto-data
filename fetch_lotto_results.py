@@ -63,21 +63,50 @@ def _parse_official_csv(text: str) -> list[str]:
 
 def _parse_beatlottery_html(html: str) -> list[str]:
     """
-    BeatLottery draw-history shows rows like:
-    '07 25 27 46 52 59 BONUS 40'
-    We'll extract every occurrence of 6 two-digit numbers followed by 'BONUS'.
-    """
-    pattern = re.compile(r"\b(\d{2})\s+(\d{2})\s+(\d{2})\s+(\d{2})\s+(\d{2})\s+(\d{2})\s+BONUS\b")
-    matches = pattern.findall(html)
+    Robust parser for BeatLottery draw-history HTML.
 
-    if not matches:
-        raise UpdaterSourceError("BeatLottery HTML parsed but found 0 draw matches")
+    Strategy:
+    - Find each occurrence of the token 'BONUS'
+    - Look in a nearby character window and extract all 1–2 digit numbers
+    - If we can see at least 7 numbers near 'BONUS', interpret the last 7 as:
+        [main1..main6, bonus]
+    This survives line breaks, &nbsp;, extra spacing, and minor markup changes.
+    """
+    upper = html.upper()
+    bonus_positions = [m.start() for m in re.finditer(r"BONUS", upper)]
+    if not bonus_positions:
+        raise UpdaterSourceError("BeatLottery HTML: no 'BONUS' tokens found (unexpected page content?)")
 
     draws = []
-    for m in matches:
-        main_balls = [int(x) for x in m]
-        formatted = "\t".join(f"{n:02}" for n in sorted(main_balls))
-        draws.append(formatted)
+    seen = set()
+
+    for pos in bonus_positions:
+        # Window around BONUS: tweak sizes if needed
+        start = max(0, pos - 120)
+        end = min(len(html), pos + 80)
+        chunk = html[start:end]
+
+        nums = re.findall(r"\b\d{1,2}\b", chunk)
+        if len(nums) < 7:
+            continue
+
+        # Use the last 7 numbers near BONUS as [6 mains + bonus]
+        last7 = nums[-7:]
+        main6 = [int(x) for x in last7[:6]]
+
+        formatted = "\t".join(f"{n:02}" for n in sorted(main6))
+
+        if formatted not in seen:
+            seen.add(formatted)
+            draws.append(formatted)
+
+    if not draws:
+        # Helpful diagnostics for logs
+        head = re.sub(r"\s+", " ", html[:500])
+        raise UpdaterSourceError(
+            "BeatLottery HTML parsed but found 0 draws. "
+            f"Page head was: {head!r}"
+        )
 
     return draws
 
@@ -140,4 +169,5 @@ def update_previous_draws_file(local_filepath, source_url=None) -> int:
 
 if __name__ == "__main__":
     update_previous_draws_file("lotto_results.lot")
+
 
