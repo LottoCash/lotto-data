@@ -135,19 +135,9 @@ def update_previous_draws_file(local_filepath, source_url=None) -> int:
 
     print(f"✅ Appended {len(new_draws)} new draw(s) at top of the file.")
 
-    # Automatically stage, commit, and push if run in GitHub Actions
-    if os.getenv("GITHUB_ACTIONS"):
-        subprocess.run(["git", "config", "user.name", "github-actions"], check=True)
-        subprocess.run(["git", "config", "user.email", "github-actions@github.com"], check=True)
-        subprocess.run(["git", "add", local_filepath], check=True)
-        subprocess.run(["git", "diff", "--cached", "--quiet"]) or subprocess.run(
-            ["git", "commit", "-m", "🔄 Auto-update lotto_results.lot"],
-            check=True,
-        )
-        subprocess.run(["git", "push"], check=True)
-
     return len(new_draws)
 
 
 if __name__ == "__main__":
     update_previous_draws_file("lotto_results.lot")
+
