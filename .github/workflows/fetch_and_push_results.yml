@@ -30,8 +30,11 @@ jobs:
           pip install -U pip
           pip install requests
 
-      - name: Run fetch script
-        run: python fetch_lotto_results.py
+      - name: Run fetch script (debug)
+        run: |
+          set -euxo pipefail
+          ls -la
+          python -u fetch_lotto_results.py
 
       - name: Commit and push if changes
         run: |
