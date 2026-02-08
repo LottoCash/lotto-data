@@ -26,14 +26,18 @@ def _fetch_text(url: str, timeout: int = 30) -> requests.Response:
 
 
 def _looks_like_planned_upgrades(resp: requests.Response) -> bool:
-    # Current failure mode: endpoint redirects to cdn-national-lottery planned upgrades HTML
     ct = (resp.headers.get("Content-Type") or "").lower()
-    body_head = (resp.text or "")[:500].lower()
+    body_head = (resp.text or "")[:1200].lower()
+    url = (resp.url or "").lower()
+
+    # If it's HTML (or looks like HTML) and not obviously CSV
+    looks_html = ("text/html" in ct) or body_head.lstrip().startswith("<!doctype") or body_head.lstrip().startswith("<html")
+
     return (
         "planned upgrades" in body_head
         or "online services unavailable" in body_head
-        or "cdn-national-lottery.co.uk/planned_upgrades" in (resp.url or "").lower()
-        or ("text/html" in ct and "draw history" not in body_head and "drawnumber" not in body_head)
+        or "cdn-national-lottery.co.uk/planned_upgrades" in url
+        or (looks_html and "drawnumber" not in body_head and "draw-number" not in body_head)
     )
 
 
@@ -169,5 +173,6 @@ def update_previous_draws_file(local_filepath, source_url=None) -> int:
 
 if __name__ == "__main__":
     update_previous_draws_file("lotto_results.lot")
+
 
 
